@@ -13,6 +13,8 @@ import org.springframework.web.bind.annotation.RestController;
 import pl.lewarski.starwarsrest.Connect;
 import pl.lewarski.starwarsrest.api.dto.CharacterDTO;
 import pl.lewarski.starwarsrest.api.dto.PlanetDTO;
+import pl.lewarski.starwarsrest.api.dto.ReportDTO;
+import pl.lewarski.starwarsrest.database.entity.FilmEntity;
 import pl.lewarski.starwarsrest.database.entity.ReportEntity;
 import pl.lewarski.starwarsrest.database.repository.CharacterRepository;
 import pl.lewarski.starwarsrest.database.repository.FilmRepository;
@@ -21,8 +23,10 @@ import pl.lewarski.starwarsrest.util.FieldsNames;
 import pl.lewarski.starwarsrest.util.Mappings;
 import pl.lewarski.starwarsrest.util.UrlPaths;
 
+import java.util.ArrayList;
 import java.util.List;
 
+import static java.util.Objects.isNull;
 import static java.util.Objects.nonNull;
 
 @Slf4j
@@ -31,9 +35,7 @@ import static java.util.Objects.nonNull;
 public class ApiController {
 
     private ReportRepository reportRepository;
-
     private FilmRepository filmRepository;
-
     private CharacterRepository characterRepository;
 
     @Autowired
@@ -46,21 +48,41 @@ public class ApiController {
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<ReportEntity> createReport(@PathVariable Long id,
-                                                     @RequestBody RequestObject requestObject) {
+    public ResponseEntity<ReportDTO> createReport(@PathVariable Long id,
+                                                  @RequestBody RequestObject requestObject) {
         log.info("PUT /{}/{}, content: {}", Mappings.BASE_URL, id, requestObject.toString());
+
         PlanetDTO askedPlanet = getAskedPlanet(requestObject);
-//        List<CharacterDTO> askedPeople = getAskedPeople(requestObject);
-//        List<Character> filtered = getFiltered(askedPeople, askedPlanet);
+        List<CharacterDTO> askedPeople = new ArrayList<>();
+        List<FilmEntity> askedFilms = new ArrayList<>();
+
+        if (isNull(askedPlanet)) {
+            ReportEntity reportEntity = ReportEntity
+                    .builder()
+                    .id(id)
+                    .queryCharacterPhrase(requestObject.getCharacterPhrase())
+                    .queryPlanetName(requestObject.getPlanetName())
+                    .build();
+            reportRepository.save(reportEntity);
+
+            return ResponseEntity.ok()
+                    .body(ReportDTO.fromEntity(reportEntity));
+        }
+
+        if (nonNull(askedPlanet.getResidentsURL())) {
+            askedPeople = getAskedPeople(requestObject, askedPlanet.getResidentsURL());
+        }
+
 //        Set<CharacterEntity> characters = createCharactersList(filtered);
 //        Set<FilmEntity> films = createFilmSet(filtered);
 //        ReportEntity report = new ReportEntity(requestObject.getCharacterPhrase(),
 //                requestObject.getPlanetName(),
 //                films, characters,
-//                askedPlanet.getPlanetId(), askedPlanet.getPlanetName());
+//                askedPlanet.getId(), askedPlanet.getPlanetName());
 //        report.setId(id);
 //
 //        reportRepository.save(report);
+
         return ResponseEntity.ok().build();
     }
 
@@ -68,16 +90,24 @@ public class ApiController {
     private PlanetDTO getAskedPlanet(RequestObject requestObject) {
         JSONObject planetsJson = getJsonObject(UrlPaths.PLANETS_URL);
 
-        while (nonNull(planetsJson.get(FieldsNames.NEXT_FIELD_NAME))) {
+        while (!planetsJson.get(FieldsNames.NEXT_FIELD_NAME).toString().equals("null")) {
             JSONArray planets = getObjects(planetsJson);
             for (int i = 0; i < planets.length(); i++) {
                 JSONObject planet = planets.getJSONObject(i);
                 if (planet.get(FieldsNames.ASKED_NAME_FIELD_NAME).toString().equalsIgnoreCase(requestObject.getPlanetName())) {
                     String planetName = planet.get(FieldsNames.ASKED_NAME_FIELD_NAME).toString();
                     String planetURL = planet.get(FieldsNames.PLANET_URL_FIELD_NAME).toString();
-                    int planetId = getPlanetId(planetURL);
-                    PlanetDTO askedPlanet = new PlanetDTO(planetId, planetName);
-                    return askedPlanet;
+
+                    List<String> residentsURL = new ArrayList<>();
+                    planet.getJSONArray(FieldsNames.RESIDENTS_FIELD_NAME).toList()
+                            .forEach(e -> residentsURL.add(e.toString()));
+
+                    int planetId = getId(planetURL);
+                    return PlanetDTO.builder()
+                            .planetId(planetId)
+                            .planetName(planetName)
+                            .residentsURL(residentsURL)
+                            .build();
                 }
             }
             planetsJson = getJsonObject(planetsJson.getString(FieldsNames.NEXT_FIELD_NAME));
@@ -85,9 +115,9 @@ public class ApiController {
         return null;
     }
 
-    private int getPlanetId(String planetURL) {
-        int lastIndex = planetURL.lastIndexOf("/");
-        return Integer.parseInt(planetURL.substring(planetURL.lastIndexOf("/", lastIndex - 1) + 1, lastIndex));
+    private int getId(String url) {
+        int lastIndex = url.lastIndexOf("/");
+        return Integer.parseInt(url.substring(url.lastIndexOf("/", lastIndex - 1) + 1, lastIndex));
     }
 
     private JSONArray getObjects(JSONObject jsonObject) {
@@ -99,31 +129,18 @@ public class ApiController {
         return new JSONObject(content);
     }
 
-//    private List<CharacterDTO> getAskedPeople(RequestObject requestObject) {
-//        List<CharacterDTO> characterList = new ArrayList<>();
-//        JSONObject peopleJson = getJsonObject(UrlPaths.PEOPLE_URL);
-//
-//        while (peopleJson.get("next").toString() != "null") {
-//            JSONArray people = getObjects(peopleJson);
-//            for (int i = 0; i < people.length(); i++) {
-//                JSONObject person = people.getJSONObject(i);
-//                if (person.get("name").toString().toLowerCase().contains(requestObject.getCharacterPhrase().toLowerCase())) {
-//                    String characterName = person.get("name").toString();
-//                    String characterURL = person.get("url").toString();
-//                    int characterId = Integer.parseInt(characterURL.substring(28, characterURL.length() - 1));
-//                    String homeworld = person.get("homeworld").toString();
-//                    Set<FilmEntity> filmList = new HashSet<>();
-//                    JSONArray results = person.getJSONArray("films");
-//                    for (int j = 0; j < results.length(); j++) {
-//                        FilmEntity film = getAskedFilm(results.get(j).toString());
-//                        filmList.add(film);
-//                    }
-//                    CharacterDTO characterDTO = new CharacterDTO(characterId, characterName);
-//                    characterList.add(characterDTO);
-//                }
-//            }
-//            peopleJson = getJsonObject(peopleJson.get("next").toString());
-//        }
-//        return characterList;
-//    }
+    private List<CharacterDTO> getAskedPeople(RequestObject requestObject, List<String> residentsURL) {
+        List<CharacterDTO> characterList = new ArrayList<>();
+        for (String url : residentsURL) {
+            JSONObject residentJSON = getJsonObject(url);
+            String characterName = residentJSON.get(FieldsNames.NEXT_FIELD_NAME).toString();
+            if (characterName.toUpperCase().contains(requestObject.getCharacterPhrase().toUpperCase())) {
+                characterList.add(CharacterDTO.builder()
+                        .characterId(getId(url))
+                        .characterName(characterName)
+                        .build());
+            }
+        }
+        return characterList;
+    }
 }

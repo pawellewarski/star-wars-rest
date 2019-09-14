@@ -30,7 +30,5 @@ public class CharacterEntity {
     private ReportEntity report;
 
     @ManyToMany(mappedBy = "characters")
-    private Set<FilmEntity> posts = new HashSet<>();
-
-
+    private Set<FilmEntity> films = new HashSet<>();
 }
