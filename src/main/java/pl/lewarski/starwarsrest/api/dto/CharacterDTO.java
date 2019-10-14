@@ -1,11 +1,13 @@
 package pl.lewarski.starwarsrest.api.dto;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import pl.lewarski.starwarsrest.database.entity.CharacterEntity;
 
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 @Builder
@@ -13,8 +15,11 @@ import java.util.Set;
 @AllArgsConstructor
 public class CharacterDTO {
 
-    private int characterId;
+    private long characterId;
     private String characterName;
+    private long homeworldId;
+    @JsonIgnore
+    private List<String> filmsURL;
 
     public static CharacterDTO fromEntity(CharacterEntity entity) {
         return CharacterDTO.builder()

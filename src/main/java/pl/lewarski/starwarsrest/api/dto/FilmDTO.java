@@ -11,7 +11,7 @@ import java.util.Set;
 @Getter
 public class FilmDTO {
 
-    private int filmId;
+    private long filmId;
     private String filmName;
 
     public static FilmDTO fromEntity(FilmEntity entity) {

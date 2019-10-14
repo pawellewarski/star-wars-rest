@@ -12,19 +12,25 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import pl.lewarski.starwarsrest.Connect;
 import pl.lewarski.starwarsrest.api.dto.CharacterDTO;
+import pl.lewarski.starwarsrest.api.dto.FilmDTO;
 import pl.lewarski.starwarsrest.api.dto.PlanetDTO;
 import pl.lewarski.starwarsrest.api.dto.ReportDTO;
+import pl.lewarski.starwarsrest.database.entity.CharacterEntity;
 import pl.lewarski.starwarsrest.database.entity.FilmEntity;
+import pl.lewarski.starwarsrest.database.entity.PlanetEntity;
 import pl.lewarski.starwarsrest.database.entity.ReportEntity;
 import pl.lewarski.starwarsrest.database.repository.CharacterRepository;
 import pl.lewarski.starwarsrest.database.repository.FilmRepository;
+import pl.lewarski.starwarsrest.database.repository.PlanetRepository;
 import pl.lewarski.starwarsrest.database.repository.ReportRepository;
 import pl.lewarski.starwarsrest.util.FieldsNames;
 import pl.lewarski.starwarsrest.util.Mappings;
 import pl.lewarski.starwarsrest.util.UrlPaths;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import static java.util.Objects.isNull;
 import static java.util.Objects.nonNull;
@@ -35,13 +41,16 @@ import static java.util.Objects.nonNull;
 public class ApiController {
 
     private ReportRepository reportRepository;
+    private PlanetRepository planetRepository;
     private FilmRepository filmRepository;
     private CharacterRepository characterRepository;
 
     @Autowired
     public ApiController(ReportRepository reportRepository,
+                         PlanetRepository planetRepository,
                          FilmRepository filmRepository,
                          CharacterRepository characterRepository) {
+        this.planetRepository = planetRepository;
         this.reportRepository = reportRepository;
         this.filmRepository = filmRepository;
         this.characterRepository = characterRepository;
@@ -53,8 +62,8 @@ public class ApiController {
         log.info("PUT /{}/{}, content: {}", Mappings.BASE_URL, id, requestObject.toString());
 
         PlanetDTO askedPlanet = getAskedPlanet(requestObject);
-        List<CharacterDTO> askedPeople = new ArrayList<>();
-        List<FilmEntity> askedFilms = new ArrayList<>();
+        Set<CharacterDTO> askedPeople = new HashSet<>();
+        Set<FilmEntity> askedFilms = new HashSet<>();
 
         if (isNull(askedPlanet)) {
             ReportEntity reportEntity = ReportEntity
@@ -69,21 +78,57 @@ public class ApiController {
                     .body(ReportDTO.fromEntity(reportEntity));
         }
 
+        PlanetEntity planetEntity =
+                PlanetEntity.builder()
+                        .id(askedPlanet.getId())
+                        .name(askedPlanet.getPlanetName())
+                        .build();
+        planetRepository.save(planetEntity);
+
         if (nonNull(askedPlanet.getResidentsURL())) {
-            askedPeople = getAskedPeople(requestObject, askedPlanet.getResidentsURL());
+            askedPeople = getAskedPeople(requestObject, askedPlanet);
         }
 
-//        Set<CharacterEntity> characters = createCharactersList(filtered);
-//        Set<FilmEntity> films = createFilmSet(filtered);
-//        ReportEntity report = new ReportEntity(requestObject.getCharacterPhrase(),
-//                requestObject.getPlanetName(),
-//                films, characters,
-//                askedPlanet.getId(), askedPlanet.getPlanetName());
-//        report.setId(id);
-//
-//        reportRepository.save(report);
+        for (CharacterDTO characterDTO : askedPeople) {
+            Set<FilmEntity> characterFilms = getAskedFilms(characterDTO);
+            askedFilms.addAll(characterFilms);
 
-        return ResponseEntity.ok().build();
+            CharacterEntity characterEntity = new CharacterEntity(characterDTO.getCharacterId(), characterDTO.getCharacterName(), planetEntity);
+            characterFilms.forEach(characterEntity::addFilm);
+            characterRepository.save(characterEntity);
+        }
+
+
+        ReportEntity report = ReportEntity.builder()
+                .id(id)
+                .queryCharacterPhrase(requestObject.getCharacterPhrase())
+                .queryPlanetName(requestObject.getPlanetName())
+                .planet(planetEntity)
+                .build();
+
+        reportRepository.save(report);
+
+
+        return ResponseEntity.ok()
+                .body(ReportDTO.builder()
+                        .id(id)
+                        .queryCharacterPhrase(requestObject.getCharacterPhrase())
+                        .queryPlanetName(requestObject.getPlanetName())
+                        .planet(PlanetDTO.fromEntity(planetEntity))
+                        .characters(askedPeople)
+                        .films(FilmDTO.fromEntitySet(askedFilms))
+                        .build());
+    }
+
+    private Set<FilmEntity> getAskedFilms(CharacterDTO characterDTO) {
+        Set<FilmEntity> filmEntities = new HashSet<>();
+        characterDTO.getFilmsURL().forEach(e -> {
+            JSONObject filmJSON = getJsonObject(e);
+            long filmId = getId(e);
+            String filmTitle = filmJSON.get(FieldsNames.TITLE_FIELD_NAME).toString();
+            filmEntities.add(new FilmEntity(filmId, filmTitle));
+        });
+        return filmEntities;
     }
 
 
@@ -96,15 +141,15 @@ public class ApiController {
                 JSONObject planet = planets.getJSONObject(i);
                 if (planet.get(FieldsNames.ASKED_NAME_FIELD_NAME).toString().equalsIgnoreCase(requestObject.getPlanetName())) {
                     String planetName = planet.get(FieldsNames.ASKED_NAME_FIELD_NAME).toString();
-                    String planetURL = planet.get(FieldsNames.PLANET_URL_FIELD_NAME).toString();
+                    String planetURL = planet.get(FieldsNames.URL_FIELD_NAME).toString();
 
                     List<String> residentsURL = new ArrayList<>();
                     planet.getJSONArray(FieldsNames.RESIDENTS_FIELD_NAME).toList()
                             .forEach(e -> residentsURL.add(e.toString()));
 
-                    int planetId = getId(planetURL);
+                    long planetId = getId(planetURL);
                     return PlanetDTO.builder()
-                            .planetId(planetId)
+                            .id(planetId)
                             .planetName(planetName)
                             .residentsURL(residentsURL)
                             .build();
@@ -115,7 +160,7 @@ public class ApiController {
         return null;
     }
 
-    private int getId(String url) {
+    private long getId(String url) {
         int lastIndex = url.lastIndexOf("/");
         return Integer.parseInt(url.substring(url.lastIndexOf("/", lastIndex - 1) + 1, lastIndex));
     }
@@ -125,19 +170,29 @@ public class ApiController {
     }
 
     private JSONObject getJsonObject(String link) {
-        String content = Connect.getUrlContents(link + UrlPaths.JSON_FORMAT_SUFIX);
+        if (!link.endsWith(UrlPaths.JSON_FORMAT_SUFIX)) {
+
+            link += UrlPaths.JSON_FORMAT_SUFIX;
+        }
+        String content = Connect.getUrlContents(link);
         return new JSONObject(content);
     }
 
-    private List<CharacterDTO> getAskedPeople(RequestObject requestObject, List<String> residentsURL) {
-        List<CharacterDTO> characterList = new ArrayList<>();
-        for (String url : residentsURL) {
+    private Set<CharacterDTO> getAskedPeople(RequestObject requestObject, PlanetDTO askedPlanet) {
+        Set<CharacterDTO> characterList = new HashSet<>();
+        for (String url : askedPlanet.getResidentsURL()) {
             JSONObject residentJSON = getJsonObject(url);
-            String characterName = residentJSON.get(FieldsNames.NEXT_FIELD_NAME).toString();
+            String characterName = residentJSON.get(FieldsNames.ASKED_NAME_FIELD_NAME).toString();
+            JSONArray residentFilmsURL = residentJSON.getJSONArray(FieldsNames.FILMS_FIELD_NAME);
+            List<String> filmsURL = new ArrayList<>();
+            residentFilmsURL.forEach(e -> filmsURL.add(e.toString()));
+
             if (characterName.toUpperCase().contains(requestObject.getCharacterPhrase().toUpperCase())) {
                 characterList.add(CharacterDTO.builder()
                         .characterId(getId(url))
                         .characterName(characterName)
+                        .homeworldId(askedPlanet.getId())
+                        .filmsURL(filmsURL)
                         .build());
             }
         }

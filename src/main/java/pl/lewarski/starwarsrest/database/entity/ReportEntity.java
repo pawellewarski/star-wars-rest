@@ -8,11 +8,11 @@ import lombok.NoArgsConstructor;
 import javax.persistence.CascadeType;
 import javax.persistence.Column;
 import javax.persistence.Entity;
+import javax.persistence.FetchType;
 import javax.persistence.Id;
-import javax.persistence.OneToMany;
+import javax.persistence.JoinColumn;
+import javax.persistence.ManyToOne;
 import javax.persistence.Table;
-import java.util.HashSet;
-import java.util.Set;
 
 @Data
 @Entity
@@ -21,6 +21,7 @@ import java.util.Set;
 @Builder
 @Table(name = "report")
 public class ReportEntity {
+
     @Id
     @Column(name = "id")
     private Long id;
@@ -31,16 +32,8 @@ public class ReportEntity {
     @Column(name = "query_criteria_planet_name")
     private String queryPlanetName;
 
-//    @OneToMany(mappedBy = "report", cascade = CascadeType.ALL)
-//    private Set<FilmEntity> films = new HashSet<>();
-
-    @OneToMany(mappedBy = "report", cascade = CascadeType.ALL)
-    private Set<CharacterEntity> characters = new HashSet<>();
-
-    @Column(name = "planet_id")
-    private int planetId;
-
-    @Column(name = "planet_name")
-    private String planetName;
+    @ManyToOne(cascade = CascadeType.ALL)
+    @JoinColumn(name = "planetId")
+    private PlanetEntity planet;
 }
 
